@@ -60,7 +60,7 @@ if (!(-e '000000.html') || ($rebuild)) {
 
 if (!(-e 'index.html') || ($rebuild)) {
 	print "Symlinking index.html to 000000.html\n" if $verbose;
-	system("ln -s 000000.html indux.html");
+	system("ln -s 000000.html index.html");
 }
 
 ### Main Loop
