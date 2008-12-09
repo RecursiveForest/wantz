@@ -5,7 +5,7 @@ use Getopt::Long;
 use Pod::Usage;
 #use Getopt::Long qw(:config bundling); # This is broken. Why?
 
-my $VERSION = '1.0';
+my $VERSION = '1.1';
 
 my @blacklist = qw/89 287 288/;
 my @list;
@@ -60,7 +60,7 @@ if (!(-e '000000.html') || ($rebuild)) {
 
 if (!(-e 'index.html') || ($rebuild)) {
 	print "Symlinking index.html to 000000.html\n" if $verbose;
-	system("ln -s 000000.html index.html");
+	symlink('000000.html', 'index.html');
 }
 
 ### Main Loop
@@ -219,7 +219,7 @@ verbosely download 1, 2, and 4 to dir 'dinosaurs' and rebuild
 
 =head1 VERSION
 
-wantz version 1.0 released 2008-12-09 under the MIT/X Consortium License. See LICENSE for details.
+wantz version 1.1 released 2008-12-09 under the MIT/X Consortium License. See LICENSE for details.
 
 =head1 AUTHOR
 
