@@ -1,0 +1,232 @@
+#!/usr/bin/perl
+
+use strict;
+use Getopt::Long;
+use Pod::Usage;
+#use Getopt::Long qw(:config bundling); # This is broken. Why?
+
+my $VERSION = '1.0';
+
+my @blacklist = qw/89 287 288/;
+my @list;
+
+my $errorlog = '.errorlog';
+my ($verbose, $bottom, $top, $list, $rebuild, $help, $man, $dir);
+#pod2usage("$0: No files given.")  if ((@ARGV == 0) && (-t STDIN));
+GetOptions('verbose' => \$verbose, 'bottom=i' => \$bottom, 'top=i' => \$top, 'list' => \$list, 
+	'rebuild', => \$rebuild, 'errorlog=s' => \$errorlog, 'help|?' => \$help, 'man' => \$man, 'dir=s', => \$dir) or pod2usage(2);
+
+pod2usage(1) if $help;
+pod2usage(-exitstatus => 0, -verbose => 2) if $man;
+
+### Preliminary Setup
+if ($list) {
+	@list = @ARGV;
+} elsif ($bottom && $top) {
+	@list = $bottom..$top;
+} else {
+	print "error: you need to specify comics to download with either --top and --bottom or --list\n"; 
+	exit;
+}
+
+if ($dir) {
+	print "Using directory $dir\n" if $verbose;
+	chdir($dir) or (mkdir($dir) and chdir($dir));
+}
+
+open(ERRLOG, ">>$errorlog") or die("Can't open $errorlog: $!");
+
+sub errorlog {
+	my ($message) = shift @_;
+	my ($sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst) = localtime(time);
+	my $date = sprintf("%4d-%02d-%02d %02d:%02d:%02d", $year+1900, $mon+1, $mday, $hour, $min, $sec);
+	print ERRORLOG "$date: $message\n";
+	next DENGO;
+}
+
+### Rebuild
+if (!(-e 'favicon.ico') || ($rebuild)) {
+	system("wget -q http://www.qwantz.com/favicon.ico -O favicon.ico");
+	print "Fetching http://www.qwantz.com/favicon.ico\n" if $verbose;
+}
+
+if (!(-e '000000.html') || ($rebuild)) {
+	print "Building 000000.html\n" if $verbose;
+	open(ZERO, ">000000.html") || outlog("Couldn't open 000000.html: $!");
+	print ZERO "<head><link rel='icon' href='favicon.ico'></head>\n";
+	print ZERO "<center>You've reached the begninning. Go back to <a href='000001.html'>the first one</a>.</center>\n";
+	close(ZERO);
+}
+
+if (!(-e 'index.html') || ($rebuild)) {
+	print "Symlinking index.html to 000000.html\n" if $verbose;
+	system("ln -s 000000.html indux.html");
+}
+
+### Main Loop
+DENGO: foreach my $n (@list) {
+	my ($image, $width, $height, $alt, $ml, $title);
+	my $comic = sprintf("%06d", $n);
+
+	foreach (@blacklist) {
+		if ($n == $_) {
+			print "Comic $comic is blacklisted. Skipping.\n" if $verbose;
+			open(BLACK, ">$comic.html") || outloug("Couldn't open $comic.html: $!");
+			print BLACK "<head><link rel='icon' href='favicon.ico'></head>\n";
+			print BLACK "<center>\n";
+			print BLACK "Suspiciously, comic $comic doesn't actually exist. You should write Ryan North about this.<br />\n";
+			print BLACK "<a href='" . sprintf("%06d", $n - 1) . ".html'>previous</a> | <a href='" . sprintf("%06d", $n + 1) . ".html'>next</a>\n";
+			print BLACK "</center>";
+			close(BLACK);
+			next DENGO;
+		}
+	}
+
+	print "Fetching http://www.qwantz.com/archive/$comic.html\n" if $verbose;
+	system("wget -q http://www.qwantz.com/archive/$comic.html -O $comic.html");
+	#|| outlog("Couldn't fetch  http://www.qwantz.com/archive/" . sprintf("%06d", $n) . ".html");
+
+	open(QWANTZ, "$comic.html") || errorlog("Couldn't open $comic.html: $!");
+	while (<QWANTZ>) {
+		$title = $1 if (m!\<title\>qwantz\.com - (.*)\</title\>!);
+		if ($ml) {
+			if (m!border\="0"\>!) {
+				m!(.*)" border\="0"\>!;
+				$alt .= "\n$1";
+				$ml = 0;
+				last;
+			} else {
+				$alt .= "\n$_";
+			}
+		} else {
+			next unless m!\<img src\="(http\://www\.qwantz\.com/comics/[\w\/\d.\-]+\.\w{3})" width\="(\d{3})" height\="(\d{3})" title\=!;
+			$image = $1;
+			$width = $2;
+			$height = $3;
+			if (m!border\="0"\>!) {
+				m!title\="(.*)" border\="0"\>!;
+				$alt = $1;
+				last;
+			} else {
+				m!title\="(.*)!;
+				$alt = $1;
+				$ml = 1;
+			}
+		}
+	}
+	close(QWANTZ);
+
+	print "Fetching $image to $comic.png\n" if $verbose;
+	system("wget -q $image -O $comic.png");
+	#|| outlog("Couldn't fetch $image to " . sprintf("%06d", $n) . ".png");
+	
+	open(DINOSAUR, ">$comic.html") || errorlog("Couldn't open $comic.html: $!");
+	print DINOSAUR "<head><link rel='icon' href='favicon.ico'><title>$title</title></head>\n";
+	print DINOSAUR "<center>\n";
+	print DINOSAUR "<img src='$comic.png' width='$width' height='$height' title='$alt' border='0' style='clear;both'><br />\n";
+	print DINOSAUR "<a href='" . sprintf("%06d", $n - 1) . ".html'>previous</a> | <a href='" . sprintf("%06d", $n + 1) . ".html'>next</a>\n";
+	print DINOSAUR "</center>";
+	close(DINOSAUR);
+}
+
+close(ERRORLOG);
+
+__END__
+
+=head1 NAME
+
+wantz - download dinosaur comics from qwantz to a local directory
+
+=head1 SYNOPSIS
+
+wantz [-v] [-r] [-h] [-m] [--bottom N --top N] [--errorlog FILE] [--directory DIRECTORY] [--list n n n ...]
+
+=head1 DESCRIPTION
+
+B<wantz> will download the specified dinosaur comics from qwantz
+and save them to a local directory, as well as build html files for easy
+display and navigation. Saves the alt text, date, height, and width in
+addition to the actual comic. The favicon.ico is also downloaded.
+
+=head1 OPTIONS
+
+=over 8
+
+=item B<-h or --help>
+
+prints a brief help message and exists
+
+=item B<-m or --man>
+
+displays the manpage
+
+=item B<-v or --verbose>
+
+toggles verbosity
+
+=item B<-b or --bottom n>
+
+start downloading from comic 'n'
+
+=item B<-t or --top n>
+
+stop downloading at comic 'n'
+
+=item B<-l or --list n x ...>
+
+download comics specified in the list instead of --top or --bottom; always the last option
+
+=item B<-d or --dir directory>
+
+download comics to directory 'directory' instead of ./
+
+=item B<-r or --rebuild>
+
+rebuild '000000.html', 'index.html', and 'favicon.ico' if they already exist
+
+=item B<-e or --errorlog file>
+
+use 'file' as the errorlog; defaults to '.errorlog'
+
+=back
+
+
+=head1 USAGE
+
+=over 8
+
+=item B<wantz --verbose -b 1 -t 1000>
+
+verbosely download the first 1000 comics
+
+=item B<wantz --rebuild -b 10 -t 20 --errorlog errors>
+
+download comics 10 through 20, rebuild 000000.html, index.html, and favicon.ico, and print errorlog to 'errors'
+
+=item B<wantz --list 2 3 5 7 11 13 17>
+
+download the first seven prime comics
+
+=item B<wantz -b 1 -t 999 -d dinosaur_comics>
+
+download the first 999 comics to dir 'dinosaur_comics'
+
+=item B<wantz -v -r -d dinosaurs -l 1 2 4>
+
+verbosely download 1, 2, and 4 to dir 'dinosaurs' and rebuild
+
+=back
+
+=head1 VERSION
+
+wantz version 1.0 released 2008-12-09 under the MIT/X Consortium License. See LICENSE for details.
+
+=head1 AUTHOR
+
+Samuel 'Shardz' Baldwin <samuel at staticfree dot info>
+
+=head1 SEE ALSO
+
+wget(1)
+
+=cut
