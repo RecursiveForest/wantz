@@ -3,6 +3,7 @@
 use strict;
 use Getopt::Long;
 use Pod::Usage;
+use File::Fetch;
 #use Getopt::Long qw(:config bundling); # This is broken. Why?
 
 my $VERSION = '1.1';
@@ -46,8 +47,11 @@ sub errorlog {
 
 ### Rebuild
 if (!(-e 'favicon.ico') || ($rebuild)) {
-	system("wget -q http://www.qwantz.com/favicon.ico -O favicon.ico");
 	print "Fetching http://www.qwantz.com/favicon.ico\n" if $verbose;
+	my $ff = File::Fetch->new(uri => 'http://www.qwantz.com/favicon.ico');
+	my $where = $ff->fetch() or die $ff->error;
+	rename($where, 'favicon.ico') unless ($where eq 'favicon.ico');
+	#system("wget -q http://www.qwantz.com/favicon.ico -O favicon.ico");
 }
 
 if (!(-e '000000.html') || ($rebuild)) {
@@ -83,7 +87,10 @@ DENGO: foreach my $n (@list) {
 	}
 
 	print "Fetching http://www.qwantz.com/archive/$comic.html\n" if $verbose;
-	system("wget -q http://www.qwantz.com/archive/$comic.html -O $comic.html");
+	my $ff = File::Fetch->new(uri => "http://www.qwantz.com/archive/$comic.html");
+	my $where = $ff->fetch() or die $ff->error;
+	rename($where, "$comic.html") unless ($where eq "$comic.html");
+	#system("wget -q http://www.qwantz.com/archive/$comic.html -O $comic.html");
 	#|| outlog("Couldn't fetch  http://www.qwantz.com/archive/" . sprintf("%06d", $n) . ".html");
 
 	open(QWANTZ, "$comic.html") || errorlog("Couldn't open $comic.html: $!");
@@ -117,7 +124,10 @@ DENGO: foreach my $n (@list) {
 	close(QWANTZ);
 
 	print "Fetching $image to $comic.png\n" if $verbose;
-	system("wget -q $image -O $comic.png");
+	my $ff = File::Fetch->new(uri => $image);
+	my $where = $ff->fetch() or die $ff->error;
+	rename($where, "$comic.png") unless ($where eq "$comic.png");
+	#system("wget -q $image -O $comic.png");
 	#|| outlog("Couldn't fetch $image to " . sprintf("%06d", $n) . ".png");
 	
 	open(DINOSAUR, ">$comic.html") || errorlog("Couldn't open $comic.html: $!");
