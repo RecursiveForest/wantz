@@ -3,36 +3,47 @@
 use strict;
 use Getopt::Long;
 use Pod::Usage;
-use File::Fetch;
+use LWP::UserAgent;
 #use Getopt::Long qw(:config bundling); # This is broken. Why?
 
-my $VERSION = '1.1';
+# wantz version 1.3 - http://staticfree.info/~samuel/projects/wantz/
+
+my $VERSION = '1.3';
 
 my @blacklist = qw/89 287 288/;
 my @list;
 
 my $errorlog = '.errorlog';
-my ($verbose, $bottom, $top, $list, $rebuild, $help, $man, $dir);
+my ($verbose, $bottom, $top, $list, $update, $rebuild, $help, $man, $dir);
 #pod2usage("$0: No files given.")  if ((@ARGV == 0) && (-t STDIN));
-GetOptions('verbose' => \$verbose, 'bottom=i' => \$bottom, 'top=i' => \$top, 'list' => \$list, 
+GetOptions('verbose' => \$verbose, 'bottom=i' => \$bottom, 'top=i' => \$top, 'list' => \$list, 'update' => \$update,
 	'rebuild', => \$rebuild, 'errorlog=s' => \$errorlog, 'help|?' => \$help, 'man' => \$man, 'dir=s', => \$dir) or pod2usage(2);
 
 pod2usage(1) if $help;
 pod2usage(-exitstatus => 0, -verbose => 2) if $man;
 
 ### Preliminary Setup
+if ($dir) {
+	print "Using directory $dir\n" if $verbose;
+	chdir($dir) or (mkdir($dir) and chdir($dir));
+}
+
 if ($list) {
 	@list = @ARGV;
 } elsif ($bottom && $top) {
 	@list = $bottom..$top;
+} elsif ($update) {
+	opendir(DIR, './') or die "Can't open directory ./: $!";
+	my @comics = sort { $b <=> $a } grep { /\d{6}.html/ } readdir(DIR);
+	closedir(DIR);
+	@list = shift(@comics);
+	@list = shift(@comics) if -l $list[0];	# Ignore possible symlink pretending to be the latest comic
+	#my $comic = shift(@comics);
+	#$comic =~ s/(\d).html/$1/;
+	#@list = $comic;
 } else {
-	print "error: you need to specify comics to download with either --top and --bottom or --list\n"; 
+	print "error: you need to specify comics to download with either --update, --top and --bottom, or --list\n"; 
 	exit;
-}
-
-if ($dir) {
-	print "Using directory $dir\n" if $verbose;
-	chdir($dir) or (mkdir($dir) and chdir($dir));
 }
 
 open(ERRLOG, ">>$errorlog") or die("Can't open $errorlog: $!");
@@ -46,25 +57,10 @@ sub errorlog {
 }
 
 ### Rebuild
-if (!(-e 'favicon.ico') || ($rebuild)) {
+if (!(-e 'favicon.ico') or ($rebuild)) {
 	print "Fetching http://www.qwantz.com/favicon.ico\n" if $verbose;
-	my $ff = File::Fetch->new(uri => 'http://www.qwantz.com/favicon.ico');
-	my $where = $ff->fetch() or die $ff->error;
-	rename($where, 'favicon.ico') unless ($where eq 'favicon.ico');
-	#system("wget -q http://www.qwantz.com/favicon.ico -O favicon.ico");
-}
-
-if (!(-e '000000.html') || ($rebuild)) {
-	print "Building 000000.html\n" if $verbose;
-	open(ZERO, ">000000.html") || outlog("Couldn't open 000000.html: $!");
-	print ZERO "<head><link rel='icon' href='favicon.ico'></head>\n";
-	print ZERO "<center>You've reached the begninning. Go back to <a href='000001.html'>the first one</a>.</center>\n";
-	close(ZERO);
-}
-
-if (!(-e 'index.html') || ($rebuild)) {
-	print "Symlinking index.html to 000000.html\n" if $verbose;
-	symlink('000000.html', 'index.html');
+	my $download = LWP::UserAgent->new->get('http://qwantz.com/favicon.ico', ':content_file' => 'favicon.ico');
+	errorlog("Couldn't download 'favicon.ico': " . $download->status_line) if $download->is_error;
 }
 
 ### Main Loop
@@ -87,14 +83,20 @@ DENGO: foreach my $n (@list) {
 	}
 
 	print "Fetching http://www.qwantz.com/archive/$comic.html\n" if $verbose;
-	my $ff = File::Fetch->new(uri => "http://www.qwantz.com/archive/$comic.html");
-	my $where = $ff->fetch() or die $ff->error;
-	rename($where, "$comic.html") unless ($where eq "$comic.html");
-	#system("wget -q http://www.qwantz.com/archive/$comic.html -O $comic.html");
-	#|| outlog("Couldn't fetch  http://www.qwantz.com/archive/" . sprintf("%06d", $n) . ".html");
+	my $download = LWP::UserAgent->new(max_redirect => 0)->get("http://qwantz.com/archive/$comic.html");
+	errorlog("Couldn't download '$comic.html': " . $download->status_line) if $download->is_error;
 
-	open(QWANTZ, "$comic.html") || errorlog("Couldn't open $comic.html: $!");
-	while (<QWANTZ>) {
+	## If the site returns a 302 (HTTP_FOUND), then it's our last comic and we should no longer grow @list
+	if ($download->is_redirect) {
+		last DENGO if ($update && $#list == 1);	# If we hit a 302 on our first go, there's nothing to update.
+		$download = LWP::UserAgent->new(max_redirect => 1)->get("http://qwantz.com/archive/$comic.html");
+		errorlog("Couldn't download '$comic.html': " . $download->status_line) if $download->is_error;
+	} else {
+		push(@list, $n + 1);
+	}
+
+	## Pull out the useful information from the comic page
+	foreach ($download->decoded_content) {
 		$title = $1 if (m!\<title\>qwantz\.com - (.*)\</title\>!);
 		if ($ml) {
 			if (m!border\="0"\>!) {
@@ -121,22 +123,38 @@ DENGO: foreach my $n (@list) {
 			}
 		}
 	}
-	close(QWANTZ);
 
 	print "Fetching $image to $comic.png\n" if $verbose;
-	my $ff = File::Fetch->new(uri => $image);
-	my $where = $ff->fetch() or die $ff->error;
-	rename($where, "$comic.png") unless ($where eq "$comic.png");
-	#system("wget -q $image -O $comic.png");
-	#|| outlog("Couldn't fetch $image to " . sprintf("%06d", $n) . ".png");
-	
-	open(DINOSAUR, ">$comic.html") || errorlog("Couldn't open $comic.html: $!");
+	my $download = LWP::UserAgent->new->get($image, ':content_file' => "$comic.png");
+	errorlog("Couldn't download '$comic.png': " . $download->status_line) if $download->is_error;
+
+	open(DINOSAUR, ">$comic.html") or errorlog("Couldn't open $comic.html: $!");
 	print DINOSAUR "<head><link rel='icon' href='favicon.ico'><title>$title</title></head>\n";
 	print DINOSAUR "<center>\n";
 	print DINOSAUR "<img src='$comic.png' width='$width' height='$height' title='$alt' border='0' style='clear;both'><br />\n";
 	print DINOSAUR "<a href='" . sprintf("%06d", $n - 1) . ".html'>previous</a> | <a href='" . sprintf("%06d", $n + 1) . ".html'>next</a>\n";
 	print DINOSAUR "</center>";
 	close(DINOSAUR);
+}
+
+# Add bumpers to catch links in the edge comics
+my $bumper = sprintf("%06d", $list[-1] + 1);
+my $last = sprintf("%06d", $list[-1]);
+
+print "Building 000000.html\n" if $verbose;
+open(ZERO, ">000000.html") || errorlog("Couldn't open 000000.html: $!");
+print ZERO "<head><link rel='icon' href='favicon.ico'></head>\n";
+print ZERO "<center>You've reached the beginning (or the end). Go back to <a href='$last.html'>the last one</a> or <a href='000001.html'>the first one</a>.</center>\n";
+close(ZERO);
+
+if (!(-e "$bumper.html") or ($rebuild)) {
+	print "Symlinking $bumper.html to 000000.html\n" if $verbose;
+	symlink('000000.html', "$bumper.html");
+}
+
+if (!(-e 'index.html') or ($rebuild)) {
+	print "Symlinking index.html to 000000.html\n" if $verbose;
+	symlink('000000.html', 'index.html');
 }
 
 close(ERRORLOG);
