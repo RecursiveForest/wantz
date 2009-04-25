@@ -14,10 +14,10 @@ my @blacklist = qw/89 287 288/;
 my @list;
 
 my $errorlog = '.errorlog';
-my ($verbose, $bottom, $top, $list, $update, $rebuild, $help, $man, $dir);
-#pod2usage("$0: No files given.")  if ((@ARGV == 0) && (-t STDIN));
-GetOptions('verbose' => \$verbose, 'bottom=i' => \$bottom, 'top=i' => \$top, 'list' => \$list, 'update' => \$update,
-	'rebuild', => \$rebuild, 'errorlog=s' => \$errorlog, 'help|?' => \$help, 'man' => \$man, 'dir=s', => \$dir) or pod2usage(2);
+my ($verbose, @range, $list, $update, $rebuild, $help, $man, $dir);
+
+GetOptions('verbose' => \$verbose, 'range=i{2}' => \@range, 'list' => \$list, 'update' => \$update, 'rebuild', => \$rebuild,
+	'errorlog=s' => \$errorlog, 'help|?' => \$help, 'man' => \$man, 'dir=s', => \$dir) or pod2usage(2);
 
 pod2usage(1) if $help;
 pod2usage(-exitstatus => 0, -verbose => 2) if $man;
@@ -30,8 +30,8 @@ if ($dir) {
 
 if ($list) {
 	@list = @ARGV;
-} elsif ($bottom && $top) {
-	@list = $bottom..$top;
+} elsif (@range) {
+	@list = $range[0]..$range[1];
 } elsif ($update) {
 	opendir(DIR, './') or die "Can't open directory ./: $!";
 	my @comics = sort { $b <=> $a } grep { /\d{6}.html/ } readdir(DIR);
@@ -42,7 +42,7 @@ if ($list) {
 	#$comic =~ s/(\d).html/$1/;
 	#@list = $comic;
 } else {
-	print "error: you need to specify comics to download with either --update, --top and --bottom, or --list\n"; 
+	print "Error: you need to specify comics to download with either --update, --range, or --list\n"; 
 	exit;
 }
 
@@ -167,7 +167,7 @@ wantz - download dinosaur comics from qwantz to a local directory
 
 =head1 SYNOPSIS
 
-wantz [-v] [-r] [-h] [-m] [--bottom N --top N] [--errorlog FILE] [--directory DIRECTORY] [--list n n n ...]
+wantz [-v] [-r] [-h] [-m] [--range x y] [--errorlog FILE] [--directory DIRECTORY] [--list x y z ...]
 
 =head1 DESCRIPTION
 
@@ -192,23 +192,23 @@ displays the manpage
 
 toggles verbosity
 
-=item B<-b or --bottom n>
+=item B<-u or --update>
 
-start downloading from comic 'n'
+update to the latest dinosaur comic
 
-=item B<-t or --top n>
+=item B<--range x y>
 
-stop downloading at comic 'n'
+downnload from x to y
 
-=item B<-l or --list n x ...>
+=item B<-l or --list x y z ...>
 
-download comics specified in the list instead of --top or --bottom; always the last option
+download comics specified in the list instead of --range or --update; always the last option
 
 =item B<-d or --dir directory>
 
 download comics to directory 'directory' instead of ./
 
-=item B<-r or --rebuild>
+=item B<--rebuild>
 
 rebuild '000000.html', 'index.html', and 'favicon.ico' if they already exist
 
@@ -223,11 +223,15 @@ use 'file' as the errorlog; defaults to '.errorlog'
 
 =over 8
 
-=item B<wantz --verbose -b 1 -t 1000>
+=item B<wantz --update>
+
+download all the dinosaur comics
+
+=item B<wantz --verbose --range 1 1000>
 
 verbosely download the first 1000 comics
 
-=item B<wantz --rebuild -b 10 -t 20 --errorlog errors>
+=item B<wantz --rebuild --range 10 20 --errorlog errors>
 
 download comics 10 through 20, rebuild 000000.html, index.html, and favicon.ico, and print errorlog to 'errors'
 
@@ -235,26 +239,22 @@ download comics 10 through 20, rebuild 000000.html, index.html, and favicon.ico,
 
 download the first seven prime comics
 
-=item B<wantz -b 1 -t 999 -d dinosaur_comics>
+=item B<wantz -u --dir dinosaur_comics>
 
-download the first 999 comics to dir 'dinosaur_comics'
+download all the dinosaur comics to the directory 'dinosaur_comics'
 
 =item B<wantz -v -r -d dinosaurs -l 1 2 4>
 
-verbosely download 1, 2, and 4 to dir 'dinosaurs' and rebuild
+verbosely download 1, 2, and 4 to the directory 'dinosaurs' and rebuild
 
 =back
 
 =head1 VERSION
 
-wantz version 1.1 released 2008-12-09 under the MIT/X Consortium License. See LICENSE for details.
+wantz version 1.3 released 2009-04-25 under the MIT/X Consortium License. See LICENSE for details.
 
 =head1 AUTHOR
 
 Samuel 'Shardz' Baldwin <samuel at staticfree dot info>
-
-=head1 SEE ALSO
-
-wget(1)
 
 =cut
