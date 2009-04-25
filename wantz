@@ -147,7 +147,7 @@ print ZERO "<head><link rel='icon' href='favicon.ico'></head>\n";
 print ZERO "<center>You've reached the beginning (or the end). Go back to <a href='$last.html'>the last one</a> or <a href='000001.html'>the first one</a>.</center>\n";
 close(ZERO);
 
-if (!(-e "$bumper.html") or ($rebuild)) {
+if (!(-e "$bumper.html") or ($rebuild) && $update) {
 	print "Symlinking $bumper.html to 000000.html\n" if $verbose;
 	symlink('000000.html', "$bumper.html");
 }
