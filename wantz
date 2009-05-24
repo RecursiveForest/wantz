@@ -6,12 +6,12 @@ use Pod::Usage;
 use LWP::UserAgent;
 #use Getopt::Long qw(:config bundling); # This is broken. Why?
 
-# wantz version 1.3.2 - http://staticfree.info/~samuel/projects/wantz/
+# wantz version 2.0 - http://staticfree.info/~samuel/projects/wantz/
 
-my $VERSION = '1.3.2';
+my $VERSION = '2.0';
 
-my @blacklist = qw/89 287 288/;
 my @list;
+my @total;
 
 my $errorlog = '.errorlog';
 my ($verbose, @range, $list, $update, $rebuild, $help, $man, $dir);
@@ -22,28 +22,63 @@ GetOptions('verbose' => \$verbose, 'range=i{2}' => \@range, 'list' => \$list, 'u
 pod2usage(1) if $help;
 pod2usage(-exitstatus => 0, -verbose => 2) if $man;
 
+
 ### Preliminary Setup
 if ($dir) {
 	print "Using directory $dir\n" if $verbose;
 	chdir($dir) or (mkdir($dir) and chdir($dir));
 }
 
+
+### Build list of total comics
+print "Building list\n" if $verbose;
+my $download = LWP::UserAgent->new->get('http://www.qwantz.com/archive/list.html');
+errorlog("Couldn't download 'list.html': " . $download->status_line) if $download->is_error;
+
+foreach ($download->decoded_content) {
+	push (@total, $1) while (s!\<li\>\<a href\="/archive/(\d{6})\.html" title\="(?:.+?)">(?:.+?)\</a\>\: (?:.+?)</li>!!);
+}
+
+
+### Build list of comics we want to download out of the list of total comics
 if ($list) {
-	@list = @ARGV;
+	die("wantz: Couldn't generate list, please specify proper values with --list\n") unless (@ARGV);
+	foreach my $total (@total) {
+		foreach my $argv (@ARGV) {
+			push (@list, $total) if ($argv == $total);
+		}
+	}
 } elsif (@range) {
-	@list = $range[0]..$range[1];
+	die("wantz: Couldn't generate list, please specify proper values with --range\n") unless ($range[0] < $range[1]);
+	my ($lower, $upper);
+	for (my $i = 0; $i <= $#total; $i++) {
+		$lower = $i if ($range[0] == $total[$i]);
+		$upper = $i if ($range[1] == $total[$i]);
+		last if ($lower and $upper);
+	}
+	@list = @total[$lower .. $upper];
 } elsif ($update) {
 	opendir(DIR, './') or die "Can't open directory ./: $!";
 	my @comics = sort { $b <=> $a } grep { /\d{6}.html/ } readdir(DIR);
 	closedir(DIR);
-	@list = shift(@comics);
-	@list = shift(@comics) if -l $list[0];	# Ignore possible symlink pretending to be the latest comic
+	my $latest = shift(@comics);
+	$latest = shift(@comics) if -l $latest;		# Ignore possible symlink pretending to be the latest comic
+	if ($latest) {
+		for (my $i = 0; $i < $#total; $i++) {
+			if ($total[$i] == $latest) {
+				@list = @total[$i + 1 .. $#total];
+				last;
+			}
+		}
+	} else {
+		@list = @total unless $latest
+	}
 } else {
-	print "Error: you need to specify comics to download with either --update, --range, or --list\n"; 
-	exit;
+	die("wantz: Error: you need to specify comics to download with either --update, --range, or --list\n");
 }
 
-open(ERRLOG, ">>$errorlog") or die("Can't open $errorlog: $!");
+### Errorlog handling
+open(ERRORLOG, ">>$errorlog") or die("Can't open $errorlog: $!");
 
 sub errorlog {
 	my ($message) = shift @_;
@@ -53,6 +88,7 @@ sub errorlog {
 	next DENGO;
 }
 
+
 ### Rebuild
 if (!(-e 'favicon.ico') or ($rebuild)) {
 	print "Fetching http://www.qwantz.com/favicon.ico\n" if $verbose;
@@ -60,38 +96,31 @@ if (!(-e 'favicon.ico') or ($rebuild)) {
 	errorlog("Couldn't download 'favicon.ico': " . $download->status_line) if $download->is_error;
 }
 
+
 ### Main Loop
-DENGO: foreach my $n (@list) {
-	push(@list, $n + 1) and next if ($n == 0);
+DENGO: for (my $i = 0; $i <= $#list; $i++) {
+	my $n = $list[$i];
 	my ($image, $width, $height, $alt, $ml, $title);
 	my $comic = sprintf("%06d", $n);
 
-	foreach (@blacklist) {
-		if ($n == $_) {
-			print "Comic $comic is blacklisted. Skipping.\n" if $verbose;
-			open(BLACK, ">$comic.html") || outloug("Couldn't open $comic.html: $!");
+	unless ($list or ($i == $#list)) {
+		my $j = $i;
+		while ($n + 1 != $list[++$j]) {
+			my $black = sprintf("%06d", $list[$j]);
+			print "Comic $black is blacklisted. Skipping.\n" if $verbose;
+			open(BLACK, ">$black.html") || outloug("Couldn't open $black.html: $!");
 			print BLACK "<head><link rel='icon' href='favicon.ico'></head>\n";
 			print BLACK "<center>\n";
-			print BLACK "Suspiciously, comic $comic doesn't actually exist. You should write Ryan North about this.<br />\n";
-			print BLACK "<a href='" . sprintf("%06d", $n - 1) . ".html'>previous</a> | <a href='" . sprintf("%06d", $n + 1) . ".html'>next</a>\n";
+			print BLACK "Suspiciously, comic $black doesn't actually exist. You should write Ryan North about this.<br />\n";
+			print BLACK "<a href='" . sprintf("%06d", $list[$i - 1]) . ".html'>previous</a> | <a href='" . sprintf("%06d", $list[$i + 1]) . ".html'>next</a>\n";
 			print BLACK "</center>";
 			close(BLACK);
-			next DENGO;
 		}
 	}
 
 	print "Fetching http://www.qwantz.com/archive/$comic.html\n" if $verbose;
-	my $download = LWP::UserAgent->new(max_redirect => 0)->get("http://qwantz.com/archive/$comic.html");
+	my $download = LWP::UserAgent->new->get("http://qwantz.com/archive/$comic.html");
 	errorlog("Couldn't download '$comic.html': " . $download->status_line) if $download->is_error;
-
-	## If the site returns a 302 (HTTP_FOUND), then it's our last comic and we should no longer grow @list
-	if ($download->is_redirect) {
-		last DENGO if ($update && $#list == 1);	# If we hit a 302 on our first go, there's nothing to update.
-		$download = LWP::UserAgent->new(max_redirect => 1)->get("http://qwantz.com/archive/$comic.html");
-		errorlog("Couldn't download '$comic.html': " . $download->status_line) if $download->is_error;
-	} elsif ($update) {	# Only grow list if --update
-		push(@list, $n + 1);
-	}
 
 	## Pull out the useful information from the comic page
 	foreach ($download->decoded_content) {
@@ -249,7 +278,7 @@ verbosely download 1, 2, and 4 to the directory 'dinosaurs' and rebuild
 
 =head1 VERSION
 
-wantz version 1.3.2 released 2009-05-23 under the MIT/X Consortium License. See LICENSE for details.
+wantz version 2.0 released 2009-05-24 under the MIT/X Consortium License. See LICENSE for details.
 
 =head1 AUTHOR
 
