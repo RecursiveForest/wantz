@@ -6,9 +6,9 @@ use Pod::Usage;
 use LWP::UserAgent;
 #use Getopt::Long qw(:config bundling); # This is broken. Why?
 
-# wantz version 2.0 - http://staticfree.info/~samuel/projects/wantz/
+# wantz version 2.1 - http://staticfree.info/~samuel/projects/wantz/
 
-my $VERSION = '2.0';
+my $VERSION = '2.1';
 
 my @list;
 my @total;
@@ -103,21 +103,7 @@ DENGO: for (my $i = 0; $i <= $#list; $i++) {
 	my ($image, $width, $height, $alt, $ml, $title);
 	my $comic = sprintf("%06d", $n);
 
-	unless ($list or ($i == $#list)) {
-		my $j = $i;
-		while ($n + 1 != $list[++$j]) {
-			my $black = sprintf("%06d", $list[$j]);
-			print "Comic $black is blacklisted. Skipping.\n" if $verbose;
-			open(BLACK, ">$black.html") || outloug("Couldn't open $black.html: $!");
-			print BLACK "<head><link rel='icon' href='favicon.ico'></head>\n";
-			print BLACK "<center>\n";
-			print BLACK "Suspiciously, comic $black doesn't actually exist. You should write Ryan North about this.<br />\n";
-			print BLACK "<a href='" . sprintf("%06d", $list[$i - 1]) . ".html'>previous</a> | <a href='" . sprintf("%06d", $list[$i + 1]) . ".html'>next</a>\n";
-			print BLACK "</center>";
-			close(BLACK);
-		}
-	}
-
+	## Fetch comic page
 	print "Fetching http://www.qwantz.com/archive/$comic.html\n" if $verbose;
 	my $download = LWP::UserAgent->new->get("http://qwantz.com/archive/$comic.html");
 	errorlog("Couldn't download '$comic.html': " . $download->status_line) if $download->is_error;
@@ -151,10 +137,12 @@ DENGO: for (my $i = 0; $i <= $#list; $i++) {
 		}
 	}
 
+	## Fetch image
 	print "Fetching $image to $comic.png\n" if $verbose;
 	my $download = LWP::UserAgent->new->get($image, ':content_file' => "$comic.png");
 	errorlog("Couldn't download '$comic.png': " . $download->status_line) if $download->is_error;
 
+	## Print local comic page
 	open(DINOSAUR, ">$comic.html") or errorlog("Couldn't open $comic.html: $!");
 	print DINOSAUR "<head><link rel='icon' href='favicon.ico'><title>$title</title></head>\n";
 	print DINOSAUR "<center>\n";
@@ -162,9 +150,25 @@ DENGO: for (my $i = 0; $i <= $#list; $i++) {
 	print DINOSAUR "<a href='" . sprintf("%06d", $n - 1) . ".html'>previous</a> | <a href='" . sprintf("%06d", $n + 1) . ".html'>next</a>\n";
 	print DINOSAUR "</center>";
 	close(DINOSAUR);
+	
+	## Handle blacklisted comics
+	unless ($list or ($i == $#list)) {
+		my $j = $n;
+		while (++$j != $list[$i + 1]) {
+			my $black = sprintf("%06d", $j);
+			print "Comic $black is blacklisted. Skipping.\n" if $verbose;
+			open(BLACK, ">$black.html") || outloug("Couldn't open $black.html: $!");
+			print BLACK "<head><link rel='icon' href='favicon.ico'></head>\n";
+			print BLACK "<center>\n";
+			print BLACK "Suspiciously, comic $black doesn't actually exist. You should write Ryan North about this.<br />\n";
+			print BLACK "<a href='" . sprintf("%06d", $j - 1) . ".html'>previous</a> | <a href='" . sprintf("%06d", $j + 1) . ".html'>next</a>\n";
+			print BLACK "</center>";
+			close(BLACK);
+		}
+	}
 }
 
-# Add bumpers to catch links in the edge comics
+### Add bumpers to catch links in the edge comics
 my $bumper = sprintf("%06d", $list[-1] + 1);
 my $last = sprintf("%06d", $list[-1]);
 
@@ -278,7 +282,7 @@ verbosely download 1, 2, and 4 to the directory 'dinosaurs' and rebuild
 
 =head1 VERSION
 
-wantz version 2.0 released 2009-05-24 under the MIT/X Consortium License. See LICENSE for details.
+wantz version 2.1 released 2009-05-25 under the MIT/X Consortium License. See LICENSE for details.
 
 =head1 AUTHOR
 
