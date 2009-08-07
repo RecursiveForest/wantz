@@ -4,24 +4,20 @@ use strict;
 use Getopt::Long;
 use Pod::Usage;
 use LWP::UserAgent;
-#use Getopt::Long qw(:config bundling); # This is broken. Why?
 
-# wantz version 2.1 - http://staticfree.info/~samuel/projects/wantz/
+# wantz version 3.0 - http://logik.li/projects/wantz/
 
-my $VERSION = '2.1';
+my $VERSION = '3.0';
 
 my @list;
 my @total;
 
-my $errorlog = '.errorlog';
 my ($verbose, @range, $list, $update, $rebuild, $help, $man, $dir);
 
-GetOptions('verbose' => \$verbose, 'range=i{2}' => \@range, 'list' => \$list, 'update' => \$update, 'rebuild', => \$rebuild,
-	'errorlog=s' => \$errorlog, 'help|?' => \$help, 'man' => \$man, 'dir=s', => \$dir) or pod2usage(2);
+GetOptions('verbose' => \$verbose, 'range=i{2}' => \@range, 'list' => \$list, 'update' => \$update, 'rebuild', => \$rebuild, 'help|?' => \$help, 'man' => \$man, 'dir=s', => \$dir) or pod2usage(2);
 
 pod2usage(1) if $help;
 pod2usage(-exitstatus => 0, -verbose => 2) if $man;
-
 
 ### Preliminary Setup
 if ($dir) {
@@ -29,31 +25,30 @@ if ($dir) {
 	chdir($dir) or (mkdir($dir) and chdir($dir));
 }
 
-
 ### Build list of total comics
 print "Building list\n" if $verbose;
-my $download = LWP::UserAgent->new->get('http://www.qwantz.com/archive/list.html');
-errorlog("Couldn't download 'list.html': " . $download->status_line) if $download->is_error;
+my $download = LWP::UserAgent->new->get('http://www.qwantz.com/archive.php');
+print STDERR "Couldn't download 'list.html': " . $download->status_line if $download->is_error;
 
 foreach ($download->decoded_content) {
-	push (@total, $1) while (s!\<li\>\<a href\="/archive/(\d{6})\.html" title\="(?:.+?)">(?:.+?)\</a\>\: (?:.+?)</li>!!);
+	unshift(@total, {comic => $1, date => $2, message => $3}) while (s!<li><a href="http://www\.qwantz\.com/index\.php\?comic=(\d+)">(.+?)</a>: (.+?)</li>!!);
+	#print STDERR;
 }
-
 
 ### Build list of comics we want to download out of the list of total comics
 if ($list) {
-	die("wantz: Couldn't generate list, please specify proper values with --list\n") unless (@ARGV);
+	die("$0: Couldn't generate list, please specify proper values with --list\n") unless (@ARGV);
 	foreach my $total (@total) {
 		foreach my $argv (@ARGV) {
-			push (@list, $total) if ($argv == $total);
+			push (@list, $total) if ($argv == $total->{comic});
 		}
 	}
 } elsif (@range) {
-	die("wantz: Couldn't generate list, please specify proper values with --range\n") unless ($range[0] < $range[1]);
+	die("$0: Couldn't generate list, please specify proper values with --range\n") unless ($range[0] < $range[1]);
 	my ($lower, $upper);
 	for (my $i = 0; $i <= $#total; $i++) {
-		$lower = $i if ($range[0] == $total[$i]);
-		$upper = $i if ($range[1] == $total[$i]);
+		$lower = $i if ($range[0] == $total[$i]->{comic});
+		$upper = $i if ($range[1] == $total[$i]->{comic});
 		last if ($lower and $upper);
 	}
 	@list = @total[$lower .. $upper];
@@ -65,88 +60,56 @@ if ($list) {
 	$latest = shift(@comics) if -l $latest;		# Ignore possible symlink pretending to be the latest comic
 	if ($latest) {
 		for (my $i = 0; $i < $#total; $i++) {
-			if ($total[$i] == $latest) {
+			if ($total[$i]->{comic} == $latest) {
 				@list = @total[$i + 1 .. $#total];
 				last;
 			}
 		}
 	} else {
-		@list = @total unless $latest
+		@list = @total;
 	}
 } else {
-	die("wantz: Error: you need to specify comics to download with either --update, --range, or --list\n");
+	die("$0: Error: you need to specify comics to download with either --update, --range, or --list\n");
 }
-
-### Errorlog handling
-open(ERRORLOG, ">>$errorlog") or die("Can't open $errorlog: $!");
-
-sub errorlog {
-	my ($message) = shift @_;
-	my ($sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst) = localtime(time);
-	my $date = sprintf("%4d-%02d-%02d %02d:%02d:%02d", $year+1900, $mon+1, $mday, $hour, $min, $sec);
-	print ERRORLOG "$date: $message\n";
-	next DENGO;
-}
-
 
 ### Rebuild
 if (!(-e 'favicon.ico') or ($rebuild)) {
 	print "Fetching http://www.qwantz.com/favicon.ico\n" if $verbose;
 	my $download = LWP::UserAgent->new->get('http://qwantz.com/favicon.ico', ':content_file' => 'favicon.ico');
-	errorlog("Couldn't download 'favicon.ico': " . $download->status_line) if $download->is_error;
+	print STDERR "Couldn't download 'favicon.ico': " . $download->status_line if $download->is_error;
 }
 
 
 ### Main Loop
-DENGO: for (my $i = 0; $i <= $#list; $i++) {
-	my $n = $list[$i];
-	my ($image, $width, $height, $alt, $ml, $title);
+for (my $i = 0; $i <= $#list; $i++) {
+	my $n = $list[$i]->{comic};
+	my ($image, $alt);
 	my $comic = sprintf("%06d", $n);
 
 	## Fetch comic page
 	print "Fetching http://www.qwantz.com/archive/$comic.html\n" if $verbose;
 	my $download = LWP::UserAgent->new->get("http://qwantz.com/archive/$comic.html");
-	errorlog("Couldn't download '$comic.html': " . $download->status_line) if $download->is_error;
+	print STDERR "Couldn't download '$comic.html': " . $download->status_line if $download->is_error;
 
 	## Pull out the useful information from the comic page
 	foreach ($download->decoded_content) {
-		$title = $1 if (m!\<title\>qwantz\.com - (.*)\</title\>!);
-		if ($ml) {
-			if (m!border\="0"\>!) {
-				m!(.*)" border\="0"\>!;
-				$alt .= "\n$1";
-				$ml = 0;
-				last;
-			} else {
-				$alt .= "\n$_";
-			}
-		} else {
-			next unless m!\<img src\="(http\://www\.qwantz\.com/comics/[\w\/\d.\-]+\.\w{3})" width\="(\d{3})" height\="(\d{3})" title\=!;
-			$image = $1;
-			$width = $2;
-			$height = $3;
-			if (m!border\="0"\>!) {
-				m!title\="(.*)" border\="0"\>!;
-				$alt = $1;
-				last;
-			} else {
-				m!title\="(.*)!;
-				$alt = $1;
-				$ml = 1;
-			}
-		}
+		next unless ($image, $alt) = m!<img src="(http://www\.qwantz\.com/comics/[\w\/\d.\-]+.\w{3})" class="comic" title="(.*?)">!s;
 	}
+
+	$alt =~ s/'/&#39;/g;	# avoid premature exit of alt-text field
 
 	## Fetch image
 	print "Fetching $image to $comic.png\n" if $verbose;
 	my $download = LWP::UserAgent->new->get($image, ':content_file' => "$comic.png");
-	errorlog("Couldn't download '$comic.png': " . $download->status_line) if $download->is_error;
+	print STDERR "Couldn't download '$comic.png': " . $download->status_line if $download->is_error;
 
 	## Print local comic page
-	open(DINOSAUR, ">$comic.html") or errorlog("Couldn't open $comic.html: $!");
-	print DINOSAUR "<head><link rel='icon' href='favicon.ico'><title>$title</title></head>\n";
+	unlink("$comic.html") if -l "$comic.html";
+	open(DINOSAUR, ">$comic.html") or print STDERR "Couldn't open $comic.html: $!";
+	print DINOSAUR "<head><link rel='icon' href='favicon.ico'><title>" . $list[$i]->{date} . "</title></head>\n";
 	print DINOSAUR "<center>\n";
-	print DINOSAUR "<img src='$comic.png' width='$width' height='$height' title='$alt' border='0' style='clear;both'><br />\n";
+	print DINOSAUR "<img src='$comic.png' title='$alt' style='border: none;'><br />\n";
+	print DINOSAUR $list[$i]->{message} . "<br />\n";
 	print DINOSAUR "<a href='" . sprintf("%06d", $n - 1) . ".html'>previous</a> | <a href='" . sprintf("%06d", $n + 1) . ".html'>next</a>\n";
 	print DINOSAUR "</center>";
 	close(DINOSAUR);
@@ -154,7 +117,7 @@ DENGO: for (my $i = 0; $i <= $#list; $i++) {
 	## Handle blacklisted comics
 	unless ($list or ($i == $#list)) {
 		my $j = $n;
-		while (++$j != $list[$i + 1]) {
+		while (++$j != $list[$i + 1]->{comic}) {
 			my $black = sprintf("%06d", $j);
 			print "Comic $black is blacklisted. Skipping.\n" if $verbose;
 			open(BLACK, ">$black.html") || outloug("Couldn't open $black.html: $!");
@@ -169,11 +132,11 @@ DENGO: for (my $i = 0; $i <= $#list; $i++) {
 }
 
 ### Add bumpers to catch links in the edge comics
-my $bumper = sprintf("%06d", $list[-1] + 1);
-my $last = sprintf("%06d", $list[-1]);
+my $bumper = sprintf("%06d", $list[-1]->{comic} + 1);
+my $last = sprintf("%06d", $list[-1]->{comic});
 
 print "Building 000000.html\n" if $verbose;
-open(ZERO, ">000000.html") || errorlog("Couldn't open 000000.html: $!");
+open(ZERO, ">000000.html") || print STDERR "Couldn't open 000000.html: $!";
 print ZERO "<head><link rel='icon' href='favicon.ico'></head>\n";
 print ZERO "<center>You've reached the beginning (or the end). Go back to <a href='$last.html'>the last one</a> or <a href='000001.html'>the first one</a>.</center>\n";
 close(ZERO);
@@ -188,8 +151,6 @@ if (!(-e 'index.html') or ($rebuild)) {
 	symlink('000000.html', 'index.html');
 }
 
-close(ERRORLOG);
-
 __END__
 
 =head1 NAME
@@ -198,7 +159,7 @@ wantz - download dinosaur comics from qwantz to a local directory
 
 =head1 SYNOPSIS
 
-wantz [-v] [-r] [-h] [-m] [-u] [--range x y] [--errorlog FILE] [--directory DIRECTORY] [--list x y z ...]
+wantz [-v] [-r] [-h] [-m] [-u] [--range x y] [--directory DIRECTORY] [--list x y z ...]
 
 =head1 DESCRIPTION
 
@@ -243,10 +204,6 @@ download comics to directory 'directory' instead of ./
 
 rebuild '000000.html', 'index.html', and 'favicon.ico' if they already exist
 
-=item B<-e or --errorlog file>
-
-use 'file' as the errorlog; defaults to '.errorlog'
-
 =back
 
 
@@ -262,9 +219,9 @@ download all the dinosaur comics
 
 verbosely download the first 1000 comics
 
-=item B<wantz --rebuild --range 10 20 --errorlog errors>
+=item B<wantz --rebuild --range 10 20>
 
-download comics 10 through 20, rebuild 000000.html, index.html, and favicon.ico, and print errorlog to 'errors'
+download comics 10 through 20, rebuild 000000.html, index.html, and favicon.ico
 
 =item B<wantz --list 2 3 5 7 11 13 17>
 
