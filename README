@@ -1,0 +1,31 @@
+wantz is a small perl script to download dinosaur comics from qwantz.com.
+
+wantz will download to a directory of your specification and build small html 
+files for each of the comics, and will preserve the alt text, title, height, 
+and width of the image. Links to the previous and next comics are provided for 
+your convenience.
+
+Usage
+-----
+
+Please read the man page (wantz --man) for further information.
+
+wantz accepts the following command line options: * -h prints a brief help 
+message and exits * -m displays the manpage * -v toggles verbosity * -u update 
+to the latest comic * --range x y download comics from x to y * -l x y z ... 
+download the comic #'s specified in the list * -d dir/ download comics to dir/ 
+instead of ./ * --rebuild rebuild 000000.html, index.html, and favicon.ico if 
+they exist
+
+The following example will download all the current dinosaur comics to ./:
+
+wantz -u
+
+And the following example will download the first 1000 comics to ./:
+
+wantz --range 1 1000
+
+And the following example will verbosely download the first seven prime comics 
+to ~/primes/, using err.log as the errorlog:
+
+wantz -v -d ~/primes -l 2 3 5 7 11 13 17
