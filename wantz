@@ -239,10 +239,10 @@ verbosely download 1, 2, and 4 to the directory 'dinosaurs' and rebuild
 
 =head1 VERSION
 
-wantz version 2.1 released 2009-05-25 under the MIT/X Consortium License. See LICENSE for details.
+wantz version 3.0 released 2009-08-07 under the MIT/X Consortium License. See LICENSE for details.
 
 =head1 AUTHOR
 
-Samuel 'Shardz' Baldwin <samuel at staticfree dot info>
+Samuel Baldwin <recursive 'dot' forest 'at' gmail 'dot' com>
 
 =cut
